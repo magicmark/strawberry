@@ -68,15 +68,18 @@ def _process_scalar(
     return wrapper
 
 
+T = TypeVar("T")
+
+
 def scalar(
-    cls=None,
+    cls: T = None,
     *,
     name: str = None,
     description: str = None,
     serialize: Callable = identity,
     parse_value: Optional[Callable] = None,
     parse_literal: Optional[Callable] = None
-):
+) -> T:
     """Annotates a class or type as a GraphQL custom scalar.
 
     Example usages:
