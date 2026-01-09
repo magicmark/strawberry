@@ -228,6 +228,96 @@ def test_codegen_returns_error_when_module_does_not_exist(
     assert "Error: Plugin fake_module_plugin not found" in result.output
 
 
+def test_codegen_with_sdl_flag(
+    cli_app: Typer, cli_runner: CliRunner, query_file_path: Path, tmp_path: Path
+):
+    # Create an SDL file with a simple schema
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text(
+        """
+        type Query {
+            user: User
+        }
+
+        type User {
+            id: ID!
+            name: String!
+            email: String
+        }
+        """
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "tests.cli.test_codegen:QueryCodegenTestPlugin",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    code_path = tmp_path / "test.py"
+    assert code_path.exists()
+    assert code_path.read_text() == "# This is a test file for GetUser"
+
+
+def test_codegen_schema_and_sdl_mutually_exclusive(
+    cli_app: Typer, cli_runner: CliRunner, query_file_path: Path, tmp_path: Path
+):
+    # Create an SDL file
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text("type Query { hello: String }")
+
+    selector = "tests.fixtures.sample_package.sample_module:schema"
+
+    # Try to use both --schema and --sdl
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "tests.cli.test_codegen:QueryCodegenTestPlugin",
+            "-o",
+            str(tmp_path),
+            "--schema",
+            selector,
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--schema and --sdl are mutually exclusive" in result.output
+
+
+def test_codegen_requires_schema_or_sdl(
+    cli_app: Typer, cli_runner: CliRunner, query_file_path: Path, tmp_path: Path
+):
+    # Try to run without --schema or --sdl
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "tests.cli.test_codegen:QueryCodegenTestPlugin",
+            "-o",
+            str(tmp_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Either --schema or --sdl must be provided" in result.output
+
+
 def test_codegen_returns_error_when_does_not_find_plugin(
     cli_app: Typer, cli_runner: CliRunner, query_file_path: Path, tmp_path: Path
 ):
@@ -302,3 +392,330 @@ def test_can_use_custom_cli_plugin(
 
     assert code_path.exists()
     assert "class GetUserResult" in code_path.read_text()
+
+
+def test_codegen_with_sdl_flag_using_builtin_plugins(
+    cli_app: Typer, cli_runner: CliRunner, tmp_path: Path
+):
+    """Test that --sdl works with built-in plugins like python and typescript."""
+    # Create an SDL file with a schema that matches the query
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text(
+        """
+        type Query {
+            user: User
+        }
+
+        type User {
+            id: ID!
+            name: String!
+            email: String
+        }
+        """
+    )
+
+    # Create a query file
+    query_file_path = tmp_path / "query.graphql"
+    query_file_path.write_text(
+        """
+        query GetUser {
+            user {
+                id
+                name
+                email
+            }
+        }
+        """
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "python",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    code_path = tmp_path / "query.py"
+    assert code_path.exists()
+    content = code_path.read_text()
+    assert "class GetUserResult" in content
+    assert "GetUserResultUser" in content
+
+
+def test_codegen_with_sdl_flag_invalid_sdl(
+    cli_app: Typer, cli_runner: CliRunner, tmp_path: Path
+):
+    """Test that --sdl provides meaningful error for invalid SDL."""
+    # Create an SDL file with invalid syntax
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text("this is not valid SDL {{{")
+
+    query_file_path = tmp_path / "query.graphql"
+    query_file_path.write_text("query Test { hello }")
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "tests.cli.test_codegen:QueryCodegenTestPlugin",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    # Should fail due to invalid SDL
+    assert result.exit_code == 1
+
+
+def test_codegen_with_sdl_nested_types(
+    cli_app: Typer, cli_runner: CliRunner, tmp_path: Path
+):
+    """Test SDL codegen with nested object types."""
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text(
+        """
+        type Query {
+            user: User
+        }
+
+        type User {
+            id: ID!
+            name: String!
+            posts: [Post!]!
+        }
+
+        type Post {
+            id: ID!
+            title: String!
+            author: User!
+        }
+        """
+    )
+
+    query_file_path = tmp_path / "query.graphql"
+    query_file_path.write_text(
+        """
+        query GetUserWithPosts {
+            user {
+                id
+                name
+                posts {
+                    id
+                    title
+                }
+            }
+        }
+        """
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "python",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    code_path = tmp_path / "query.py"
+    assert code_path.exists()
+    content = code_path.read_text()
+    assert "GetUserWithPostsResult" in content
+    assert "GetUserWithPostsResultUser" in content
+    assert "GetUserWithPostsResultUserPosts" in content
+
+
+def test_codegen_with_sdl_enum_types(
+    cli_app: Typer, cli_runner: CliRunner, tmp_path: Path
+):
+    """Test SDL codegen with enum types."""
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text(
+        """
+        type Query {
+            user: User
+        }
+
+        type User {
+            id: ID!
+            name: String!
+            status: Status!
+        }
+
+        enum Status {
+            ACTIVE
+            INACTIVE
+            PENDING
+        }
+        """
+    )
+
+    query_file_path = tmp_path / "query.graphql"
+    query_file_path.write_text(
+        """
+        query GetUserStatus {
+            user {
+                id
+                status
+            }
+        }
+        """
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "python",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    code_path = tmp_path / "query.py"
+    assert code_path.exists()
+    content = code_path.read_text()
+    assert "Status" in content
+    assert "ACTIVE" in content
+    assert "INACTIVE" in content
+    assert "PENDING" in content
+
+
+def test_codegen_with_sdl_nullable_fields(
+    cli_app: Typer, cli_runner: CliRunner, tmp_path: Path
+):
+    """Test SDL codegen handles nullable and non-nullable fields correctly."""
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text(
+        """
+        type Query {
+            user: User
+        }
+
+        type User {
+            id: ID!
+            name: String!
+            nickname: String
+            age: Int
+        }
+        """
+    )
+
+    query_file_path = tmp_path / "query.graphql"
+    query_file_path.write_text(
+        """
+        query GetUser {
+            user {
+                id
+                name
+                nickname
+                age
+            }
+        }
+        """
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "python",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    code_path = tmp_path / "query.py"
+    assert code_path.exists()
+    content = code_path.read_text()
+    # Non-nullable fields should not have Optional
+    assert "id: str" in content
+    assert "name: str" in content
+    # Nullable fields should have Optional
+    assert "Optional[str]" in content
+    assert "Optional[int]" in content
+
+
+def test_codegen_with_sdl_query_variables(
+    cli_app: Typer, cli_runner: CliRunner, tmp_path: Path
+):
+    """Test SDL codegen with query variables."""
+    sdl_file_path = tmp_path / "schema.graphql"
+    sdl_file_path.write_text(
+        """
+        type Query {
+            user(id: ID!): User
+        }
+
+        type User {
+            id: ID!
+            name: String!
+        }
+        """
+    )
+
+    query_file_path = tmp_path / "query.graphql"
+    query_file_path.write_text(
+        """
+        query GetUserById($userId: ID!) {
+            user(id: $userId) {
+                id
+                name
+            }
+        }
+        """
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "codegen",
+            "-p",
+            "python",
+            "-o",
+            str(tmp_path),
+            "--sdl",
+            str(sdl_file_path),
+            str(query_file_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    code_path = tmp_path / "query.py"
+    assert code_path.exists()
+    content = code_path.read_text()
+    assert "GetUserByIdVariables" in content
+    assert "userId" in content

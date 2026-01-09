@@ -11,7 +11,11 @@ import typer
 
 from strawberry.cli.app import app
 from strawberry.cli.utils import load_schema
-from strawberry.codegen import ConsolePlugin, QueryCodegen, QueryCodegenPlugin
+from strawberry.codegen import (
+    ConsolePlugin,
+    QueryCodegen,
+    QueryCodegenPlugin,
+)
 
 
 def _is_codegen_plugin(obj: object) -> bool:
@@ -94,7 +98,18 @@ def codegen(
     query: list[Path] | None = typer.Argument(
         default=None, exists=True, dir_okay=False
     ),
-    schema: str = typer.Option(..., help="Python path to the schema file"),
+    schema: str | None = typer.Option(
+        None, help="Python path to the schema file"
+    ),
+    sdl: Path | None = typer.Option(
+        None,
+        "--sdl",
+        help="Path to GraphQL SDL file containing the schema",
+        exists=True,
+        dir_okay=False,
+        file_okay=True,
+        readable=True,
+    ),
     app_dir: str = typer.Option(
         ".",
         "--app-dir",
@@ -125,7 +140,19 @@ def codegen(
     if not query:
         return
 
-    schema_symbol = load_schema(schema, app_dir)
+    # Ensure --schema and --sdl are mutually exclusive
+    if schema and sdl:
+        rich.print(
+            "[red]Error: --schema and --sdl are mutually exclusive. "
+            "Please provide only one."
+        )
+        raise typer.Exit(1)
+
+    if not schema and not sdl:
+        rich.print(
+            "[red]Error: Either --schema or --sdl must be provided."
+        )
+        raise typer.Exit(1)
 
     console_plugin_type = _load_plugin(cli_plugin) if cli_plugin else ConsolePlugin
     console_plugin = console_plugin_type(output_dir)
@@ -135,9 +162,20 @@ def codegen(
     for q in query:
         plugins = cast("list[QueryCodegenPlugin]", _load_plugins(selected_plugins, q))
 
-        code_generator = QueryCodegen(
-            schema_symbol, plugins=plugins, console_plugin=console_plugin
-        )
+        if sdl:
+            # Use QueryCodegen.from_sdl() for SDL files
+            sdl_content = sdl.read_text()
+            code_generator = QueryCodegen.from_sdl(
+                sdl_content, plugins=plugins, console_plugin=console_plugin
+            )
+        else:
+            # QueryCodegen auto-detects Strawberry schemas and extracts
+            # the graphql-core schema and type registries
+            schema_symbol = load_schema(schema, app_dir)
+            code_generator = QueryCodegen(
+                schema_symbol, plugins=plugins, console_plugin=console_plugin
+            )
+
         code_generator.run(q.read_text())
 
     console_plugin.after_all_finished()

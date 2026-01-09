@@ -4,6 +4,7 @@ from .query_codegen import (
     ConsolePlugin,
     QueryCodegen,
     QueryCodegenPlugin,
+    SDLQueryCodegen,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "ConsolePlugin",
     "QueryCodegen",
     "QueryCodegenPlugin",
+    "SDLQueryCodegen",
 ]

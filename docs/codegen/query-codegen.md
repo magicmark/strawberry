@@ -75,6 +75,30 @@ strawberry codegen --schema schema --output-dir ./output -p python query.graphql
 
 We'll get the following output inside `output/query.py`:
 
+## Using SDL instead of a Python schema
+
+If you have a GraphQL schema in SDL (Schema Definition Language) format instead
+of a Python module, you can use the `--sdl` flag:
+
+```shell
+strawberry codegen --sdl schema.graphql --output-dir ./output -p python query.graphql
+```
+
+This is useful when:
+
+- You want to generate code from a schema defined in an external service
+- Your schema is defined in SDL format rather than Python code
+- You're building tooling that doesn't have access to the server's Python codebase
+
+<Note>
+
+The `--schema` and `--sdl` flags are mutually exclusive. You must provide exactly
+one of them.
+
+</Note>
+
+We'll get the following output inside `output/query.py`:
+
 ```python
 class MyQueryResultUserPost:
     title: str
